@@ -1,0 +1,604 @@
+#include <SoftwareSerial.h>
+#include "enes100.h"
+
+#define echoPin 4 // Echo Pin 
+#define trigPin 5 // Trigger Pin 
+
+
+
+
+int m1In = 32;
+int m1Out = 30;
+int ENA = 28;
+int m2In = 34;
+int m2Out = 36;
+int ENB = 38;
+int m3In = 31;
+int m3Out = 33;
+int ENC = 29;
+int m4In = 35;
+int m4Out = 37;
+int END = 39;
+
+
+int maximumRange = 200; // Maximum range needed
+int minimumRange = 0; // Minimum range needed
+long duration, distance; // Duration used to calculate distance
+long distances;
+long distancef = 0;
+float startX;
+float finishX;
+boolean keepTurning = false;
+boolean keepTurning2 = false;
+boolean keepTurning3 = false;
+boolean keepTurning4 = false;
+boolean keepTurning5 = false;
+boolean keepIR = false;
+boolean keepIR2 = true;
+boolean ok = true;
+
+boolean doneXParallel = false;
+boolean doneTravelX = true;
+boolean doneYParallel = true;
+boolean doneTravelY = true;
+boolean doneLoop2 = false;
+
+
+//Declare the software serial which on pins 8,9 which
+//are connected to the RF module tx and rx.
+SoftwareSerial sSerial(50,48);
+
+//Declare an enes100::RfClient which is the interface for
+//receiving markers and sending messages to the vision system.
+//  To use a hardware serial connection:
+//    enes100::RfClient<HardwareSerial rf(&Serial1);
+//                                            ^
+//                              whatever serial is used
+enes100::RfClient<SoftwareSerial> rf(&sSerial);
+
+//Declare an enes100::Marker.  This marker will store the id,
+//x, y, theta, and time values of a received marker.
+enes100::Marker marker;
+
+  /*int x1 = 0;
+  int y1 = 0;
+  int t1 = 0;
+  int t2 = 0;
+  int t3 = 0;*/
+
+void setup() {
+  //Initialize the software and hardware serial
+  sSerial.begin(9600);
+  Serial.begin(9600);
+  
+  delay(100);
+
+  pinMode(trigPin, OUTPUT); 
+  pinMode(echoPin, INPUT); 
+
+  
+  //Reset the state of the server, and send a message indicating
+  //our status.
+  rf.resetServer();
+  rf.sendMessage("Team Terrapin Connected Right Now.");
+
+
+  pinMode(m1In, OUTPUT);
+  pinMode(m1Out, OUTPUT);
+  pinMode(m2In, OUTPUT);
+  pinMode(m2Out, OUTPUT);
+  pinMode(m3In, OUTPUT);
+  pinMode(m3Out, OUTPUT);
+  pinMode(m4In, OUTPUT);
+  pinMode(m4Out, OUTPUT);
+
+  digitalWrite(m1In, LOW);
+  digitalWrite(m2In, LOW);
+  digitalWrite(m3In, LOW);
+  digitalWrite(m4In, LOW);
+  digitalWrite(m1Out, LOW);
+  digitalWrite(m2Out, LOW);
+  digitalWrite(m3Out, LOW);
+  digitalWrite(m4Out, LOW);
+
+  rf.sendMessage("Hello");
+
+  if(rf.receiveMarker(&marker, 111))
+  {
+    rf.sendMessage("TRUE");
+  }
+  else
+  {
+    rf.sendMessage("FALSE");
+  }
+
+}
+
+//Every 100ms attempt to receive marker 5 from the server.
+//If marker 5 is received with an x coordinate greater than
+//1 meter, report to the system that we reached the right side
+//of the arena.
+void loop() {
+
+  // GREG DEBUG
+  //if(rf.receiveMarker(&marker, 111))
+ // {
+ // rf.sendMessage(marker.x);
+  //return;
+ // }
+  
+  
+  delay(100);
+  rf.sendMessage(marker.x);
+  //rf.ReceiveMarker returns true if a marker was received
+  //before timing out, and false otherwise.
+  if(rf.receiveMarker(&marker, 111)){
+    rf.sendMessage("Terrain Team Connected Now");
+    Serial.print("x: ");
+    Serial.print(marker.x);
+    Serial.print("    y: ");
+   Serial.print(marker.y);
+   Serial.print("    theta: ");
+    Serial.println(marker.theta);
+        rf.sendMessage("x: ");
+    rf.sendMessage(marker.x);
+    rf.sendMessage("    y: ");
+   rf.sendMessage(marker.y);
+   rf.sendMessage("    theta: ");
+    rf.sendMessage(marker.theta);
+
+    if(marker.theta >= 1.7 && !keepTurning){
+      rf.sendMessage("\nTurn Right");
+      Serial.print("\nTurn Right");
+      turnRight();
+    }
+    else if(marker.theta < 1.5 && !keepTurning){
+      rf.sendMessage("\nTurn Left 1");
+      Serial.print("\nTurn Left 1");
+      turnLeft();
+    }
+    else if(marker.y < 0.8 && !keepTurning3){
+      rf.sendMessage("\nMove Forward 1");
+      Serial.print("\nMove Forward 1");  
+      moveForward();
+      keepTurning = true;
+    }
+    else if(marker.y > 1.0 && !keepTurning3)
+    {
+      rf.sendMessage("Move Backward");
+      Serial.print("Move Backward");
+      moveBackward();
+    }
+    else if(marker.theta > 0.3 && !keepTurning2)
+    {
+      rf.sendMessage("Turn Right 2");
+      Serial.print("Turn Right 2");
+      turnRight();
+      if(marker.theta < 0.2)
+      {
+        keepTurning2 = true;
+      }
+      keepTurning3 = true;
+    }
+    else if(marker.theta < -0.5 && !keepTurning2)
+    {
+      rf.sendMessage("Turn Left 2");
+      Serial.print("Turn Left 2");
+      turnLeft();
+    }
+    else if(marker.x < 1.8 && !keepTurning4){
+       rf.sendMessage("Move Forward");
+       Serial.print("Move Forward");
+       moveForward();
+       keepTurning2 = true;
+    }
+    else if(marker.x > 1.5 && !keepTurning4 && marker.theta >= 1.7 ){
+      rf.sendMessage("\nTurn Right");
+      Serial.print("\nTurn Right");
+      turnRight();
+    }
+     
+    else if(marker.theta < 1.5 &&!keepTurning5 && marker.x > 1.5){
+      rf.sendMessage("\nTurn Left 1");
+      Serial.print("\nTurn Left 1");
+      turnLeft();
+    }
+    
+    else if(marker.y < 1.1){
+      rf.sendMessage("\nMove Forward 1");
+      Serial.print("\nMove Forward 1");  
+      moveForward();
+      keepTurning4 = true;
+      keepTurning5 = true;
+    }
+    else if(marker.theta > 0.3)
+    {
+      rf.sendMessage("Turn Right 2");
+      Serial.print("Turn Right 2");
+      turnRight();
+      if(marker.theta < 0.2)
+      {
+        keepTurning2 = true;
+      }
+    }
+    else if(marker.x < 1.7){
+      rf.sendMessage("\nMove Forward 1");
+      Serial.print("\nMove Forward 1");  
+      moveForward();  
+    }
+   /* else if(marker.x > 2.0 && marker.x < 2.3 && marker.y > 1.1 && marker.y < 1.3 ){
+      rf.sendMessage("\nREACHED DESTINATION");
+      startX = marker.x;
+      while(distance < 40){
+          rf.sendMessage("Move Forward IR");
+          Serial.println("Move Forward IR");
+          
+      }
+      finishX = marker.x;   
+
+      Serial.println("FINAL LENGTH: " + (finishX - startX));
+    
+    }*/
+    else{
+      if(marker.x < 2.5 ){
+        float d = getDistance();
+        moveForward();
+        if(d < 50 && !keepIR){
+          startX = marker.x;
+          keepIR = true;
+          keepIR2 = false;
+        }  
+        else if(d > 50 && !keepIR2){
+          finishX = marker.x;
+          keepIR2 = true;
+        }
+      }
+      else if(marker.x > 2.5){
+        stopMoving();
+        float completeDistance = finishX - startX;
+        rf.sendMessage("\nFINAL DISTANCE: ");
+        rf.sendMessage(completeDistance);
+        rf.sendMessage("\n-------------");
+      }
+    }
+    
+    /*
+  //xParallel
+  if(marker.theta < 0.8 && marker.theta > -0.8)
+  {
+    doneXParallel = true;
+    doneTravelX = false;
+  }
+  if((marker.theta > 0.8 || marker.theta < -0.8) && !doneXParallel)
+  {
+    if(marker.theta > 0.8)
+    {
+      printCoordinates();
+      Serial.println("Turn Right A");
+      rf.sendMessage("Turn Right A\n");
+    }
+    else if(getTheta() < -0.8)
+    {
+      printCoordinates();
+      Serial.println("Turn Left A");
+      rf.sendMessage("Turn Left A\n");
+    }
+  }
+
+  
+  //travelX()
+  if(marker.x >= 2.4)
+  {
+    doneTravelX = true; 
+    doneYParallel = false;
+  }
+  if(marker.x < 2.4 && !doneTravelX)
+  {
+    printCoordinates();
+    Serial.println("Move Forward A");
+    rf.sendMessage("Move Forward A\n");
+  }
+
+  
+  //yParallel()
+  if((marker.x >=780 && marker.x <= 820) && !doneLoop2)
+  {
+    doneYParallel = true;
+    doneTravelY = false;
+  }
+   if((marker.y > 820 || marker.y < 780) && !doneYParallel){
+      if(marker.y > 820)
+      {
+        while(marker.theta > -1.75 || marker.theta < -1.4)
+        {
+          if(marker.theta > -1.75)
+          {
+            printCoordinates();
+            Serial.println("Turn Left B");
+            rf.sendMessage("Turn Left B\n");
+          }
+          if(marker.theta < -1.4)
+          {
+            printCoordinates();
+            Serial.println("Turn Right B");
+            rf.sendMessage("Turn Right B\n");
+          }
+        }
+      }
+      
+      else if(marker.y < 780)
+      {
+        while(marker.theta < 1.4 || marker.theta > 1.75)
+        {
+           if(marker.theta < 1.4)
+           {
+            printCoordinates();
+            Serial.println("Turn Left C");
+            rf.sendMessage("Turn Left C\n");
+            }
+          else if(marker.theta > 1.75)
+          {
+              printCoordinates();
+              Serial.println("Turn Right C");
+              rf.sendMessage("Turn Right C\n");
+          }
+        }
+      }
+  }
+  
+  
+  //travelY()
+  if(marker.x >=780 && marker.x <= 820 && !doneLoop2)
+  {
+    doneTravelY = true;
+    doneLoop2 = true; 
+  }
+  if((marker.y > 820 || marker.y < 780) && !doneTravelY)
+  {
+    printCoordinates();
+    Serial.println("Move Forward B");
+    rf.sendMessage("Move Forward B\n");
+  }
+
+  if(doneTravelY)
+  {
+    reachDestination();
+  }
+   
+  }*/
+  }}//end of loop
+
+
+
+
+
+
+
+
+/*
+
+float getTheta()
+{
+  return marker.theta;
+}
+
+void xParallel()
+{
+  if(getTheta() > 0.8 || getTheta() < -0.8 && !doneXParallel)
+  {
+    if(getTheta() > 0.8)
+    {
+      printCoordinates();
+      Serial.println("Turn Right A");
+      rf.sendMessage("Turn Right A\n");
+    }
+    else if(getTheta() < -0.8)
+    {
+      printCoordinates();
+      Serial.println("Turn Left A");
+      rf.sendMessage("Turn Left A\n");
+    }
+  }
+}//end of xParallel
+
+void yParallel()
+{
+  if((marker.y > 820 || marker.y < 780) && !doneYParallel){
+      if(marker.y > 820)
+      {
+        while(marker.theta > -1.75 || marker.theta < -1.4)
+        {
+          if(marker.theta > -1.75)
+          {
+            printCoordinates();
+            Serial.println("Turn Left B");
+            rf.sendMessage("Turn Left B\n");
+          }
+          if(marker.theta < -1.4)
+          {
+            printCoordinates();
+            Serial.println("Turn Right B");
+            rf.sendMessage("Turn Right B\n");
+          }
+        }
+      }
+      else if(marker.y < 780)
+      {
+        while(marker.theta < 1.4 || marker.theta > 1.75)
+        {
+           if(marker.theta < 1.4)
+           {
+            printCoordinates();
+            Serial.println("Turn Left C");
+            rf.sendMessage("Turn Left C\n");
+            }
+          else if(marker.theta > 1.75)
+          {
+              printCoordinates();
+              Serial.println("Turn Right C");
+              rf.sendMessage("Turn Right C\n");
+          }
+        }
+      }
+  }
+}//end of yParallel
+
+
+void travelX()
+{
+  if(marker.x < 2.4 && !doneTravelX)
+  {
+    printCoordinates();
+    Serial.println("Move Forward A");
+    rf.sendMessage("Move Forward A\n");
+  }
+}//end of travelX
+
+
+void travelY()
+{
+  if((marker.y > 820 || marker.y < 780) && !doneTravelY)
+  {
+    printCoordinates();
+    Serial.println("Move Forward B");
+    rf.sendMessage("Move Forward B\n");
+  }
+}//end of travelY
+
+
+void reachDestination()
+{
+  if(marker.x > 2.3 && marker.x < 2.5 && marker.y > 780 && marker.y < 820)
+  {
+    printCoordinates();
+    Serial.println("REACHED DESTINATION");
+    rf.sendMessage("REACHED DESTINATION\n");
+  }
+  else
+  {
+    printCoordinates();
+    Serial.println("DID NOT REACH DESTINATION");
+    rf.sendMessage("DID NOT REACH DESTINATION\n");
+  }
+}//end of reachDestination 
+
+void printCoordinates()
+{
+      Serial.print("x: ");
+      Serial.print(marker.x);
+      Serial.print("    y: ");
+      Serial.print(marker.y);
+      Serial.print("    theta: ");
+      Serial.print(marker.theta);
+      Serial.print("    ");
+      rf.sendMessage("x: ");
+      rf.sendMessage(marker.x);
+      rf.sendMessage("    y: ");
+      rf.sendMessage(marker.y);
+      rf.sendMessage("    theta: ");
+      rf.sendMessage(marker.theta);
+      rf.sendMessage("    ");
+      
+}*/
+
+float getDistance()
+{
+  digitalWrite(trigPin, LOW); 
+ delayMicroseconds(2); 
+
+ digitalWrite(trigPin, HIGH);
+ delayMicroseconds(10); 
+ 
+ digitalWrite(trigPin, LOW);
+ duration = pulseIn(echoPin, HIGH);
+ 
+ //Calculate the distance (in cm) based on the speed of sound.
+ distance = duration/58.2;
+ return distance;
+}
+
+
+void moveForward()
+{
+  digitalWrite(m1In, HIGH);
+  digitalWrite(m2In, LOW);
+  digitalWrite(m3In, LOW);
+  digitalWrite(m4In, LOW);
+  digitalWrite(m1Out, LOW);
+  digitalWrite(m2Out, HIGH);
+  digitalWrite(m3Out, HIGH);
+  digitalWrite(m4Out, HIGH);
+  analogWrite(ENA, 200);
+  analogWrite(ENB, 200);
+  analogWrite(ENC, 200);
+  analogWrite(END, 200);
+}
+
+void moveBackward(){
+  digitalWrite(m1In, LOW);
+  digitalWrite(m2In, HIGH);
+  digitalWrite(m3In, HIGH);
+  digitalWrite(m4In, HIGH);
+  digitalWrite(m1Out, HIGH);
+  digitalWrite(m2Out, LOW);
+  digitalWrite(m3Out, LOW);
+  digitalWrite(m4Out, LOW);
+  analogWrite(ENA, 200);
+  analogWrite(ENB, 200);
+  analogWrite(ENC, 200);
+  analogWrite(END, 200);
+  
+}
+
+void turnRight()
+{
+  digitalWrite(m1In, HIGH);
+  digitalWrite(m2In, LOW);
+  digitalWrite(m3In, HIGH);
+  digitalWrite(m4In, HIGH);
+  digitalWrite(m1Out, LOW);
+  digitalWrite(m2Out, HIGH);
+  digitalWrite(m3Out, LOW);
+  digitalWrite(m4Out, LOW);
+  analogWrite(ENA, 200);
+  analogWrite(ENB, 200);
+  analogWrite(ENC, 200);
+  analogWrite(END, 200);
+
+}
+
+void turnLeft()
+{
+  digitalWrite(m1In, LOW);
+  digitalWrite(m2In, HIGH);
+  digitalWrite(m3In, LOW);
+  digitalWrite(m4In, LOW);
+  digitalWrite(m1Out, HIGH);
+  digitalWrite(m2Out, LOW);
+  digitalWrite(m3Out, HIGH);
+  digitalWrite(m4Out, HIGH);
+  analogWrite(ENA, 200);
+  analogWrite(ENB, 200);
+  analogWrite(ENC, 200);
+  analogWrite(END, 200);
+
+}
+
+
+
+void stopMoving()
+{
+    digitalWrite(m1In, LOW);
+  digitalWrite(m2In, LOW);
+  digitalWrite(m3In, LOW);
+  digitalWrite(m4In, LOW);
+  digitalWrite(m1Out, LOW);
+  digitalWrite(m2Out, LOW);
+  digitalWrite(m3Out, LOW);
+  digitalWrite(m4Out, LOW);
+  analogWrite(ENA, 0);
+  analogWrite(ENB, 0);
+  analogWrite(ENC, 0);
+  analogWrite(END, 0);
+  
+}
