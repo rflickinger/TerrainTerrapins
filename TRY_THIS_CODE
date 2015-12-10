@@ -1,0 +1,310 @@
+#include <SoftwareSerial.h>
+#include "enes100.h"
+
+#define echoPin 4 // Echo Pin 
+#define trigPin 5 // Trigger Pin 
+
+int m1In = 32;
+int m1Out = 30;
+int ENA = 10; //28
+int m2In = 34;
+int m2Out = 36;
+int ENB = 11; //38
+int m3In = 31;
+int m3Out = 33;
+int ENC = 8; //29
+int m4In = 35;
+int m4Out = 37;
+int END = 9; //39
+
+int maximumRange = 170; // Maximum range needed
+int minimumRange = 0; // Minimum range needed
+long duration, distance; // Duration used to calculate distance
+float startY = 0;
+float finishY = 0;
+
+boolean keepIR = false;
+boolean keepIR2 = true;
+boolean step1 = false, step2 = false, step3 = false, step4 = false, step5 = false, step6 = false, step7 = false;
+
+
+//Declare the software serial which on pins 8,9 which
+//are connected to the RF module tx and rx.
+SoftwareSerial sSerial(50,48);
+
+//Declare an enes100::RfClient which is the interface for
+//receiving markers and sending messages to the vision system.
+//  To use a hardware serial connection:
+//    enes100::RfClient<HardwareSerial rf(&Serial1);
+//                                            ^
+//                              whatever serial is used
+enes100::RfClient<SoftwareSerial> rf(&sSerial);
+
+//Declare an enes100::Marker.  This marker will store the id,
+//x, y, theta, and time values of a received marker.
+enes100::Marker marker;
+
+
+void setup() {
+  //Initialize the software and hardware serial
+  sSerial.begin(9600);
+  Serial.begin(9600);
+  
+  delay(100);
+
+  pinMode(trigPin, OUTPUT); 
+  pinMode(echoPin, INPUT); 
+
+  
+  //Reset the state of the server, and send a message indicating
+  //our status.
+  rf.resetServer();
+  rf.sendMessage("Team Terrapin Connected Right Now.");
+
+  pinMode(m1In, OUTPUT);  //set all motor pins to output
+  pinMode(m1Out, OUTPUT);
+  pinMode(m2In, OUTPUT);
+  pinMode(m2Out, OUTPUT);
+  pinMode(m3In, OUTPUT);
+  pinMode(m3Out, OUTPUT);
+  pinMode(m4In, OUTPUT);
+  pinMode(m4Out, OUTPUT);
+
+  digitalWrite(m1In, LOW);  //set all motor pins to off(not moving)
+  digitalWrite(m2In, LOW);
+  digitalWrite(m3In, LOW);
+  digitalWrite(m4In, LOW);
+  digitalWrite(m1Out, LOW);
+  digitalWrite(m2Out, LOW);
+  digitalWrite(m3Out, LOW);
+  digitalWrite(m4Out, LOW);
+
+}
+
+  delay(10);
+  //rf.sendMessage(marker.x);
+  if(rf.receiveMarker(&marker, 119)){
+    //rf.sendMessage("Terrain Team Connected Now");
+    rf.sendMessage("\n");
+    Serial.print("x: ");
+    Serial.print(marker.x);
+    Serial.print("    y: ");
+    Serial.print(marker.y);
+    Serial.print("    theta: ");
+    Serial.println(marker.theta);
+    rf.sendMessage("x: ");
+    rf.sendMessage(marker.x);
+    rf.sendMessage("    y: ");
+    rf.sendMessage(marker.y);
+    rf.sendMessage("    theta: ");
+    rf.sendMessage(marker.theta);
+    rf.sendMessage("\n");
+
+
+    //******* STEP 1 *******
+    if(marker.theta >= 1.7 && !step1){  //turn right if needed until oriented parallel to y axis
+      rf.sendMessage("\nTurn Right");
+      Serial.print("\nTurn Right");
+      turnRight();
+    }
+    else if(marker.theta < 1.3 && !step1){  //turn left if needed until oriented parallel to y axis
+      rf.sendMessage("\nTurn Left");
+      Serial.print("\nTurn Left");
+      turnLeft();
+      delay(170);
+      stopMoving();
+    }
+    
+    //******* STEP 2 *******
+    else if(marker.y < 1.0 && !step2){  //move forward parallel to y axis until y = 0.8
+      rf.sendMessage("\nMove Forward");
+      Serial.print("\nMove Forward");  
+      moveForward();
+      step1 = true;
+    }
+    else if(marker.y > 1.1 && !step2){   //move backward parallel to y axis until y = 0.8
+      rf.sendMessage("\nMove Backward");
+      Serial.print("\nMove Backward");
+      moveBackward();
+    }
+    
+    //******* STEP 3 *******
+    else if(marker.theta > 0.2  && !step3){    //turn right until parallel with x axis
+      rf.sendMessage("Turn Right");
+      Serial.print("Turn Right");
+      turnRight();
+      delay(170);
+      stopMoving();
+      step2 = true;
+    }
+    else if(marker.theta < -0.2 && !step3){   //turn left if needed until parallel with x axis
+      rf.sendMessage("Turn Left 2");
+      Serial.print("Turn Left 2");
+      turnLeft();
+      delay(170);
+      stopMoving();
+    }
+    
+    //******* STEP 4 *******
+    else if(marker.x < 1.7 && !step4){   //move forward parallel to x axis until x = 1.8
+       rf.sendMessage("Move Forward");
+       Serial.print("Move Forward");
+       step3 = true;
+       moveForward();
+    }
+    
+    //******* STEP 5 *******
+    else if(marker.x < 2.2 && !step5){
+      step4 = true;
+      float dist = getDistance();
+      if(dist < 40){
+        stopMoving();
+        step5 = true;
+      }
+    }
+    //******* STEP 6 *******
+    else if(marker.x < 2.4 && !step6){
+      step5 = true;
+      float dist = getDistance();
+      if(dist > 40){
+        stopMoving();
+        moveForward(400);
+        stopMoving();
+        step6 = true;
+      }
+    }
+
+    //******* STEP 7 *******
+    else if(marker.theta > -1.5 && !step7){
+      step6 = true;
+      rf.sendMessage("Turn Right");
+      turnRight();
+    }
+
+    //******* STEP 8 *******
+     else{
+      step7 = true;
+      if(marker.y > 0.3 ){    //if not yet past the boulder
+        float d = getDistance();    //get distance from IR sensor
+        moveForward();
+        //delay(170);
+        //stopMoving();
+        if(d < 30 && !keepIR){    //if boulder is detected within 30 cm
+          startY = marker.y;    //record current x coordinate as starting value
+          keepIR = true;
+          keepIR2 = false;
+        }  
+        else if(d > 40 && !keepIR2){    //if object is no longer detected within 50 cm
+          finishY = marker.y;   //record x value as finishing value
+          keepIR2 = true;
+        }
+      }
+      else if(marker.y < 0.3){
+        stopMoving();
+        float completeDistance = finishY - startY;    //calculate length of boulder
+        rf.sendMessage("\nSTART Y = ");
+        rf.sendMessage(startY);
+        rf.sendMessage("\nFINISH Y ");
+        rf.sendMessage(finishY);
+        rf.sendMessage("\nFINAL DISTANCE: ");        //print final distance
+        rf.sendMessage(completeDistance);
+        rf.sendMessage(" meters");
+        rf.sendMessage("\n-------------");
+      }
+    }
+  }
+}    //end of loop function
+
+
+
+float getDistance()
+{
+  digitalWrite(trigPin, LOW); 
+  delayMicroseconds(2); 
+
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10); 
+ 
+  digitalWrite(trigPin, LOW);
+  duration = pulseIn(echoPin, HIGH);
+ 
+  //Calculate the distance (in cm) based on the speed of sound.
+  distance = duration/58.2;
+  return distance;
+}
+
+void moveForward(){
+  digitalWrite(m1In, HIGH);
+  digitalWrite(m2In, LOW);
+  digitalWrite(m3In, LOW);
+  digitalWrite(m4In, LOW);
+  digitalWrite(m1Out, LOW);
+  digitalWrite(m2Out, HIGH);
+  digitalWrite(m3Out, HIGH);
+  digitalWrite(m4Out, HIGH);
+  analogWrite(ENA, 170);
+  analogWrite(ENB, 170);
+  analogWrite(ENC, 170);
+  analogWrite(END, 170);
+}
+
+void moveBackward(){
+  digitalWrite(m1In, LOW);
+  digitalWrite(m2In, HIGH);
+  digitalWrite(m3In, HIGH);
+  digitalWrite(m4In, HIGH);
+  digitalWrite(m1Out, HIGH);
+  digitalWrite(m2Out, LOW);
+  digitalWrite(m3Out, LOW);
+  digitalWrite(m4Out, LOW);
+  analogWrite(ENA, 170);
+  analogWrite(ENB, 170);
+  analogWrite(ENC, 170);
+  analogWrite(END, 170);
+}
+
+void turnRight(){
+  digitalWrite(m1In, HIGH);
+  digitalWrite(m2In, LOW);
+  digitalWrite(m3In, HIGH);
+  digitalWrite(m4In, HIGH);
+  digitalWrite(m1Out, LOW);
+  digitalWrite(m2Out, HIGH);
+  digitalWrite(m3Out, LOW);
+  digitalWrite(m4Out, LOW);
+  analogWrite(ENA, 170);
+  analogWrite(ENB, 170);
+  analogWrite(ENC, 170);
+  analogWrite(END, 170);
+}
+
+void turnLeft(){
+  digitalWrite(m1In, LOW);
+  digitalWrite(m2In, HIGH);
+  digitalWrite(m3In, LOW);
+  digitalWrite(m4In, LOW);
+  digitalWrite(m1Out, HIGH);
+  digitalWrite(m2Out, LOW);
+  digitalWrite(m3Out, HIGH);
+  digitalWrite(m4Out, HIGH);
+  analogWrite(ENA, 170);
+  analogWrite(ENB, 170);
+  analogWrite(ENC, 170);
+  analogWrite(END, 170);
+}
+
+void stopMoving(){
+  digitalWrite(m1In, LOW);
+  digitalWrite(m2In, LOW);
+  digitalWrite(m3In, LOW);
+  digitalWrite(m4In, LOW);
+  digitalWrite(m1Out, LOW);
+  digitalWrite(m2Out, LOW);
+  digitalWrite(m3Out, LOW);
+  digitalWrite(m4Out, LOW);
+  analogWrite(ENA, 0);
+  analogWrite(ENB, 0);
+  analogWrite(ENC, 0);
+  analogWrite(END, 0);
+}
+
